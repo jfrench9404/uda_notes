@@ -1,3 +1,5 @@
+pip3 install pandas
+
 import pandas as pd
 # The following get ran in the terminal
 # pip install playwright
