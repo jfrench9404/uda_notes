@@ -34,11 +34,43 @@ done within a single function. Perform any data cleaning that you find necessary
 ```{python}
 import glob as glob
 import pandas as pd
+import os
 
-def rd_earnings (file_name):
-  glob.glob("C:/Users/jfrench6/Downloads/calls/*.txt")
+file_with_files = glob.glob("C:/Users/John/Downloads/calls/*.txt")
 
+files = []
 
+for file in file_with_files:
+  file = file.replace('\\', "/")
+  file_name = os.path.basename(file)
+  file_name = file_name.replace(".txt", "")
+  files.append(file_name)
+  
+number_of_files = len(files)
+
+def file_readin (file_n):
+  split_text = file_n.split("_")
+  with open((file_n), 'r') as file:
+    content = file.read()
+  split_text.append(content)
+  return split_text
+
+file_df = []
+
+for file in file_with_files:
+  file_df += file_readin(file)
+
+grouped_objects = []
+for i in range(0, len(file_df), 4):
+    grouped_objects.append(file_df[i:i + 4])
+
+final_file_df = pd.DataFrame(grouped_objects, columns=['ticker', 'quarter', 'year', 'content'])
+
+final_file_df["year"] = final_file_df["year"].str.replace('.txt', '', regex=False)
+
+final_file_df["ticker"] = final_file_df["ticker"].str.split('\\').str[-1]
+
+final_file_df
 ```
 
 ## Step 2
@@ -51,7 +83,30 @@ and plotnine is good for ggplot2 users.
 
 ```{python}
 import requests 
+import plotnine as p9
+import plotly.express as px
+import pandas as pd
+import nbformat
 
+wwe_stock_url = 'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&time_from=20200204T0130&symbol=WWE&outputsize=full&apikey=9IIFJ7F48E4KEL4G'
+stock_r = requests.get(wwe_stock_url)
+wwe_qtr_stock = stock_r.json()
+
+wwe_qtr_stock = pd.DataFrame(wwe_qtr_stock['Time Series (Daily)']).T
+
+plot_df = wwe_qtr_stock.reset_index()
+
+# Rename columns for clarity
+plot_df.columns = ["Date", "Open", "High", "Low", "Close", "Volume"]
+
+# Convert Date to datetime format (for better plotting)
+plot_df["Date"] = pd.to_datetime(plot_df["Date"])
+
+# Convert Close price to float (ensure numeric values for plotting)
+plot_df["Close"] = plot_df["Close"].astype(float)
+
+fig = px.line(plot_df, x="Date", y="Close", title="Sales Over Time")
+fig
 ```
 
 ## Step 3
@@ -68,7 +123,7 @@ Just like every other nerdy hobby, professional wrestling draws dedicated fans.
 *** Which promotion has the most matches in the top 100? 
 
 **** What is each promotion's average WON rating?
-
+5
 ***** Select any single match and get the comments and ratings for that match into 
 a data frame.
 
@@ -84,16 +139,30 @@ cm_soup = BeautifulSoup(cm_request.content, features = "html.parser")
 
 # # = id , . = class, select = most important method for all of beautiful soup
 
+cm_top100_v2 = cm_soup.select_one('.Table')
+
 cm_top100 = cm_soup.find_all('tr')
 
 cm_top100_df = []
 
 for row in cm_top100:
         # Extract columns within the row (e.g., <td> elements)
-        cols = row.find_all('td')  # Assuming data is in <td> tags
-        if len(cols) > 0:  # Check if the row contains data
-            data_row = [col.get_text(strip=True) for col in cols]
-            cm_top100_df.append(data_row)
+    cols = row.find_all('td')  # Assuming data is in <td> tags
+
+    data_row = []
+
+    for row in cm_top100:
+        # Check for <img> tags within the <td>
+        img_tag = row.find_all('img')
+        if img_tag:
+            # Extract the src attribute from the <img> tag
+            data_row.append(img_tag[0]['title']) ##################
+        else:
+            # Extract text from <td>
+            data_row.append(row.get_text(strip=True))
+    if len(cols) > 0:  # Check if the row contains data
+        data_row = [col.get_text(strip=True) for col in cols]
+        cm_top100_df.append(data_row)
 
 cm_tb_range = range(0, len(cm_top100))
 
@@ -104,14 +173,14 @@ print(cm_df)
 
 ```{python}
 import numpy as np
+import plotly
+
+# Correlation between WON ratings and cagematch ratings
+
 
 # Convert relevant columns to numeric
-cm_df[2] = pd.to_numeric(cm_df[2], errors='coerce')  # Assuming WON ratings are in column 2
+cm_df[6] = pd.to_numeric(cm_df[6], errors='coerce')  # Assuming WON ratings are in column 2
 cm_df[3] = pd.to_numeric(cm_df[3], errors='coerce')  # Assuming cagematch ratings are in column 3
-
-# Calculate correlation between WON ratings and cagematch ratings
-correlation = cm_df[2].corr(cm_df[3])
-print(f"Correlation between WON ratings and cagematch ratings: {correlation}")
 
 # Find the wrestler with the most matches in the top 100
 wrestler_counts = cm_df[4].value_counts()  # Assuming wrestler names are in column 4
@@ -129,22 +198,23 @@ print("Average WON rating for each promotion:")
 print(promotion_avg_won)
 
 # Select a single match and get comments and ratings for that match
-match_id = '12345'  # Replace with actual match ID
+match_id = '8034'  # Replace with actual match ID
 match_url = f'https://www.cagematch.net/?id=111&nr={match_id}'
 match_request = requests.get(match_url)
 match_soup = BeautifulSoup(match_request.content, features="html.parser")
 
-comments = match_soup.find_all('div', class_='comments')
-ratings = match_soup.find_all('div', class_='rating')
+comments_section = match_soup.find('div', class_='CommentBox', id ='commentBox') ########################
+ratings = match_soup.find_all('div', class_='RatingsBoxAdjustedRating Rating Color9')
+
+comments = comments_section.find_all('div', class_='Comment')
 
 comments_list = [comment.get_text(strip=True) for comment in comments]
 ratings_list = [rating.get_text(strip=True) for rating in ratings]
 
 match_df = pd.DataFrame({
-  'Comment': comments_list,
-  'Rating': ratings_list
+    'Comment': comments_list,
+    'Rating': ratings_list
 })
-print(match_df)
 ```
 
 ## Step 4
@@ -153,11 +223,38 @@ You can't have matches without wrestlers. The following link contains the top 10
 wrestlers, according to cagematch: https://www.cagematch.net/?id=2&view=statistics
 
 *** Of the top 100, who has wrestled the most matches?
-
+Kenta Kobashi
 ***** Of the top 100, which wrestler has the best win/loss?
+Hiroshi Tanahashi
 
 ```{python}
 
+wrestler_request = requests.get('https://www.cagematch.net/?id=2&view=statistics')
+
+wrestler_soup = BeautifulSoup(wrestler_request.content, features = "html.parser")
+
+wrestler_top100_v2 = wrestler_soup.select_one('.Table')
+
+wrestler_top100 = wrestler_top100_v2.find_all('tr')
+
+wrestler_top100_df = []
+
+for trow in wrestler_top100: # Extract columns "td" in the rows
+  tcols = trow.find_all('td')  # Assuming data is in <td> tags
+  tdata_row = [tcol.get_text(strip=True) for tcol in tcols]
+  wrestler_top100_df.append(tdata_row)
+
+wrestler_tb_range = range(1, len(wrestler_top100))
+
+wrestler_df = pd.DataFrame(wrestler_top100_df)
+
+print(wrestler_df)
+```
+
+```{python}
+wrestler_df_sorted_1st_question = wrestler_df.sort_values(by=6, ascending=False)
+
+wrestler_df_sorted_2nd_question = wrestler_df.sort_values(by=7, ascending=False)
 ```
 
 ## Step 5
@@ -165,9 +262,25 @@ wrestlers, according to cagematch: https://www.cagematch.net/?id=2&view=statisti
 With all of this work out of the way, we can start getting down to strategy.
 
 First, what talent should WWE pursue? Advise carefully.
+Kenta Kobashi
+
+Hiroshi Tanahashi
 
 Second, reconcile what you found in steps 3 and 4 with Netflix's relationship with WWE.
+
  Use the data from the following page to help make your case: 
  https://wrestlenomics.com/tv-ratings/
 
+ ```{python}
+wwe_ratings = requests.get('https://wrestlenomics.com/tv-ratings/')
+
+ratings_soup = BeautifulSoup(wwe_ratings.content, features = "html.parser")
+
+ratings_table = ratings_soup.select('table', class_="medium datawrapper-ld8Jf-1k2zto9 svelte-zr2lpq striped compact resortable desktop-only")
+
+ ```
+The ratings are current low, but the stock price has been the highest since it's been since the pandemic. One of the places that the WWE could prioritize is the WWE NXT route for their developmental talent.
+
 Third, do you have any further recommendations for WWE?
+
+Like I just mentioned, I think that the WWE should prioritize their developmental talent in the WWE NXT to continue to find growth. WWE Raw seems to be doing alright, but could still have some risk involved for future investors. 
