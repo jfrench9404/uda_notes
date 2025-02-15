@@ -1,0 +1,218 @@
+---
+title: "Homework 2"
+author: "John French"
+format:
+  html:
+    toc: true
+    toc-location: left
+    self-contained: true
+jupyter: python3
+---
+
+## Task 1
+
+We are going to return to the table of the top 100 wrestlers: https://www.cagematch.net/?id=2&view=statistics. Specifically, you are going to get the ratings/comments tables for each wrestler.
+```{python}
+from bs4 import BeautifulSoup
+import requests
+import pandas as pd
+import re
+
+h2_t1_url = 'https://www.cagematch.net/?id=2&view=statistics'
+h2_t1_response = requests.get(h2_t1_url)
+h2_wrestler_soup = BeautifulSoup(h2_t1_response.text, 'html.parser')
+
+h2_wrestler_table = h2_wrestler_soup.find('table', class_="TBase TableBorderColor")
+
+h2_wrestler_rows = h2_wrestler_table.select('tr') # this has all of our information we need for finding the player and their attached URL
+
+player_urls = []
+
+for row in h2_wrestler_rows:
+    player_url = row.find('a')
+    if player_url:  # Ensure it's not None
+        player_urls.append(player_url['href'])  # Extract only the href attribute
+
+player_urls = player_urls[1:] # remove the first row as it is the header
+
+# Create full URLs with original URL
+full_player_urls = [h2_t1_url + url for url in player_urls]
+
+cleaned_urls = []
+
+for url in full_player_urls:
+  cleaned_urls.append(re.sub(r"(nr=[0-9]+)(.*)",r"\1&page=99", url))
+
+# Now we have the URLs for each player, we can loop through and get the ratings/comments tables
+
+for player in cleaned_urls:
+  h2_t1_player_resp = requests.get(player)
+  h2_t1_player_soup = BeautifulSoup(h2_t1_player_resp.text, 'html.parser')
+  comments_box = (h2_t1_player_soup.select(".LayoutContent .Comment .CommentContents"))
+
+h2_t1_comments_whole = []
+
+for comment in comments_box:
+  h2_t1_comments_whole.append(comment.text)
+
+ratings = []
+comments = []
+
+for x in h2_t1_comments_whole:
+  if bool(re.search('\\[\\d+\\.0\\]', x)) == False:
+    ratings.append('No Rating')
+    cleaned_text = x.strip('"')
+    comments.append(cleaned_text)
+  else:
+    rate = (re.search('\\[\\d+\\.0\\]', x))
+    ratings.append(rate.group(0))
+
+    comment_text = (re.sub(r".*?\]", "", x).strip())
+    cleaned_text = comment_text.strip('"')
+    comments.append(cleaned_text)
+
+cleaned_ratings =[]
+
+for rating in ratings:
+  if rating == 'No Rating':
+    rating = None
+    cleaned_ratings.append(rating)
+  else:
+    rating = re.sub("(\[|\])", "", rating)
+    rating = float(rating)
+    cleaned_ratings.append(rating)
+
+print(comments)
+print(cleaned_ratings)
+```
+
+## Task 2
+
+Perform any form of sentiment analysis. What is the relationship between a reviewer's sentiment and their rating?
+```{python}
+from bs4 import BeautifulSoup
+import pandas as pd
+import requests
+from transformers import pipeline
+import torch
+import re
+
+# The HuggingFace folks are just making stuff too easy at this point: 
+# https://huggingface.co/docs/transformers/main_classes/pipelines
+
+sentiment_analysis = pipeline('sentiment-analysis')
+
+sentences_per_comment = []
+
+sentences_per_comment = []
+
+for text_block in comments:
+    sentence_list = re.split(r'\.\s*', text_block)  # Split by period followed by any whitespace
+    sentence_list = [sentence.strip() for sentence in sentence_list]  # Trim whitespace from each sentence
+    sentences_per_comment.append(sentence_list)
+
+print(sentences_per_comment)
+
+all_comments_number = len(sentences_per_comment)
+sentiment_scores = []
+sentiment_labels = []
+
+for com_num in range(0, all_comments_number):
+  comment_score = 0
+  label_score = []
+  for sentence in sentences_per_comment[com_num]:
+    result = sentiment_analysis(sentence)
+    comment_score += result[0]['score']
+    label_score.append(result[0]['label'])
+  sentiment_labels.append(label_score)
+  sentiment_scores.append(comment_score)
+
+mostly_sentiment = []
+
+for label in sentiment_labels:
+  if label.count('POSITIVE') > label.count('NEGATIVE'):
+    mostly_sentiment.append('POSITIVE')
+  elif label.count('POSITIVE') < label.count('NEGATIVE'):
+    mostly_sentiment.append('NEGATIVE')
+  else:
+    mostly_sentiment.append('NEUTRAL')
+```
+
+```{python}
+complete_df = pd.DataFrame(
+    {'comments': comments,
+      'leaning_sentiment': mostly_sentiment,
+     'ratings': cleaned_ratings,
+     'sentiment_scores': sentiment_scores,
+     'sentiment_labels': sentiment_labels
+    })
+
+print(complete_df)
+```
+
+Well, this is pretty difficult to measure since many of the 10s were written in a different language (German). These ratings would be different if the model could understand the language (even with some of the English translation at the beginning). There really isn't an accurate way to measure the relationship between the sentiment and the rating. However, the ratings between what the model thinks and what is listed by the commenter are pretty hard to disntinguish because of this.
+
+## Task 3
+
+Perform any type of topic modeling on the comments. What are the main topics of the comments? How can you use those topics to understand what people value?
+
+```{python}
+# bertopic is for transformers
+from bertopic import BERTopic
+from bertopic.vectorizers import ClassTfidfTransformer
+# joblib is for saving and loading objects
+from joblib import load, dump
+```
+
+```{python}
+ctfidf_model = ClassTfidfTransformer(
+  reduce_frequent_words=True
+)
+```
+
+Notice that we can't use pandas objects directly, but have to convert them to lists.
+
+```{python}
+import os
+
+save_path = '/Users/John/Documents/Visual Studio Python/uda_notes/'
+
+# Ensure the directory exists
+os.makedirs(save_path, exist_ok=True)
+
+save_path = os.path.join(save_dir, "h2_topic_model.joblib")
+
+dump([topic_model, topics, probs], save_path)
+```
+
+```{python}
+topic_model = BERTopic(ctfidf_model=ctfidf_model)
+
+topics, probs = topic_model.fit_transform(comments)
+```
+
+```{python}
+dump(
+  [topic_model, topics, probs], 
+  '/Users/John/Documents/Visual Studio Python/uda_notes/h2_topic_model.joblib'
+)
+```
+
+```{python}
+topic_model, topics, probs = load(
+  '/Users/John/Documents/Visual Studio Python/uda_notes/h2_topic_model.joblib'
+)
+topic_model.get_topic_info()
+
+topic_model.get_topic(0)
+
+topic_model.get_document_info(comments)
+
+topic_model.get_representative_docs(0)
+
+topic_model.generate_topic_labels()
+
+topic_model.reduce_topics(comments, nr_topics=10)
+```
+
+Again, because the comments are primarily in German, we cannot accurately determine the topics of the comments. However, the model does a good job of grouping the comments into topics, even if there are stop words in different languages that need to be taken out.
