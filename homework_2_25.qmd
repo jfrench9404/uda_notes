@@ -45,15 +45,19 @@ for url in full_player_urls:
 
 # Now we have the URLs for each player, we can loop through and get the ratings/comments tables
 
+all_comments = []
+
 for player in cleaned_urls:
   h2_t1_player_resp = requests.get(player)
   h2_t1_player_soup = BeautifulSoup(h2_t1_player_resp.text, 'html.parser')
   comments_box = (h2_t1_player_soup.select(".LayoutContent .Comment .CommentContents"))
+  all_comments.append(comments_box)
 
 h2_t1_comments_whole = []
 
-for comment in comments_box:
-  h2_t1_comments_whole.append(comment.text)
+for box_comment in all_comments:
+  for comment in box_comment:
+    h2_t1_comments_whole.append(comment.text)
 
 ratings = []
 comments = []
@@ -82,8 +86,6 @@ for rating in ratings:
     rating = float(rating)
     cleaned_ratings.append(rating)
 
-print(comments)
-print(cleaned_ratings)
 ```
 
 ## Task 2
@@ -93,10 +95,13 @@ Perform any form of sentiment analysis. What is the relationship between a revie
 from bs4 import BeautifulSoup
 import pandas as pd
 import requests
+import transformers
 from transformers import pipeline
 import torch
 import re
+```
 
+```{python}
 # The HuggingFace folks are just making stuff too easy at this point: 
 # https://huggingface.co/docs/transformers/main_classes/pipelines
 
@@ -107,7 +112,8 @@ sentences_per_comment = []
 sentences_per_comment = []
 
 for text_block in comments:
-    sentence_list = re.split(r'\.\s*', text_block)  # Split by period followed by any whitespace
+    truncated_comment = text_block[:500]  # Take only the first 500 characters
+    sentence_list = re.split(r'\.\s*', truncated_comment)  # Split by period followed by any whitespace
     sentence_list = [sentence.strip() for sentence in sentence_list]  # Trim whitespace from each sentence
     sentences_per_comment.append(sentence_list)
 
@@ -150,7 +156,7 @@ complete_df = pd.DataFrame(
 print(complete_df)
 ```
 
-Well, this is pretty difficult to measure since many of the 10s were written in a different language (German). These ratings would be different if the model could understand the language (even with some of the English translation at the beginning). There really isn't an accurate way to measure the relationship between the sentiment and the rating. However, the ratings between what the model thinks and what is listed by the commenter are pretty hard to disntinguish because of this.
+Generally speaking, a 10 rating indicates a positive tone and sentimental analysis. There are fluctuations in the sentimental score themselves (ranging from 1-5 in the 10 range), but generally speaking, it indicates a stronger sentiment towards positive with some negative sentiment ratings around. The flip side can also be observed. Lower ratings generally display a negative sentiment, but there are some positive sentiments in the mix.
 
 ## Task 3
 
@@ -180,13 +186,12 @@ save_path = '/Users/John/Documents/Visual Studio Python/uda_notes/'
 # Ensure the directory exists
 os.makedirs(save_path, exist_ok=True)
 
-save_path = os.path.join(save_dir, "h2_topic_model.joblib")
+save_path = os.path.join(save_path, "h2_topic_model.joblib")
 
-dump([topic_model, topics, probs], save_path)
+topic_model = BERTopic(ctfidf_model=ctfidf_model)
 ```
 
 ```{python}
-topic_model = BERTopic(ctfidf_model=ctfidf_model)
 
 topics, probs = topic_model.fit_transform(comments)
 ```
@@ -212,7 +217,13 @@ topic_model.get_representative_docs(0)
 
 topic_model.generate_topic_labels()
 
-topic_model.reduce_topics(comments, nr_topics=10)
+topic_model.reduce_topics(comments, nr_topics=20)
 ```
 
-Again, because the comments are primarily in German, we cannot accurately determine the topics of the comments. However, the model does a good job of grouping the comments into topics, even if there are stop words in different languages that need to be taken out.
+Some of the topics include:
+- German comments = zero correlation whatsoever. The model cannot find anything between comments if it cannot understand the language.
+- Many of the comments are attributed to the wrestler's performance and legacy on the game. "Eletrifying, legendary, best ever" are some of the topics that are covered.
+- Other topics also center around particular wrestlers and their names (given the amount of frequency they pop up in matchups).
+- Some niche topics include funny/comedic ones that poke fun at wrestlers or complain about the referees. 
+
+All in all, the topics generally center around the game (as it would in any other sport). The main senitment though that we can take away from the topic model exploration is understanding that fans of the WWE love the electrifying atmosphere that it brings. Stars, bright moments, flashy stunts, that is what wrestling is all about.
