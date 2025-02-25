@@ -1,7 +1,9 @@
 ---
+project:
+  python:  C:\Users\John\AppData\Local\Programs\Python\Python313\python.exe
 title: "Homework 2"
 author: "John French"
-format:
+format: 
   html:
     toc: true
     toc-location: left
